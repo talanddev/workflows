@@ -1,0 +1,46 @@
+name: Cypress E2E
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+        # "dev" or "stage"
+    secrets:
+      cypress_username:
+        required: true
+      cypress_password:
+        required: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      # Install NPM dependencies, cache them correctly
+      # and run all Cypress tests
+      - name: Cypress run
+        uses: cypress-io/github-action@v2
+        with:
+          command: yarn e2e:${{ inputs.env }}
+        env:
+          # Our current dev env is actually the stage env
+          CYPRESS_USERNAME: ${{ secrets.cypress_username }}
+          CYPRESS_PASSWORD: ${{ secrets.cypress_password }}
+      # NOTE: screenshots will be generated only if E2E test failed
+      # thus we store screenshots only on failures
+      # Alternative: create and commit an empty cypress/screenshots folder
+      # to always have something to upload
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+      # Test run video was always captured, so this action uses "always()" condition
+      - uses: actions/upload-artifact@v1
+        if: always()
+        with:
+          name: cypress-videos
+          path: cypress/videos

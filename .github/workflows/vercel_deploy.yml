@@ -1,0 +1,39 @@
+name: Vercel deploy
+
+on:
+  workflow_call:
+    inputs:
+      alias:
+        required: false
+        type: string
+      vercel_args:
+        required: false
+        type: string
+    secrets:
+      vercel_token:
+        required: true
+      vercel_project_id:
+        required: true
+      vercel_org_id:
+        required: true
+      ci_discord_webhook:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: amondnet/vercel-action@v20
+        with:
+          scope: talanddev
+          vercel-token: ${{ secrets.vercel_token }}
+          vercel-org-id: ${{ secrets.vercel_org_id }}
+          vercel-project-id: ${{ secrets.vercel_project_id }}
+          vercel-args: ${{ inputs.vercel_args }}
+          alias-domains: ${{ inputs.alias }}
+
+      - uses: sarisia/actions-status-discord@v1
+        if: always()
+        with:
+          webhook: ${{ secrets.ci_discord_webhook }}
