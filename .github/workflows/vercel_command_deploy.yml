@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       command_pre_deploy:
-        required: false
+        required: true
         type: string
     secrets:
       vercel_token:
