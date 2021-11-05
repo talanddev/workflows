@@ -32,6 +32,8 @@ jobs:
         node-version: [14.x]
     steps:
       - uses: actions/checkout@v2
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v1
 
       - name: Use Node Version ${{ matrix.node-version }}
         uses: actions/setup-node@v2
