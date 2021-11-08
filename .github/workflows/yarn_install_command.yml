@@ -11,8 +11,8 @@ on:
         required: false
 
 jobs:
-  test:
-    name: Unit tests
+  install_and_run:
+    name: Install and run
     runs-on: ubuntu-latest
     strategy:
       matrix:
