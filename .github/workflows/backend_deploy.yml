@@ -1,0 +1,129 @@
+name: Backend deploy ECR + ECS refresh
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+    secrets:
+      aws_access_key_id:
+        required: true
+      aws_secret_access_key:
+        required: true
+      aws_region:
+        required: true
+      ecr_repo:
+        required: true
+      infrastructure_doppler_token:
+        required: true
+
+jobs:
+  build-push-deploy:
+    container: public.ecr.aws/f3x8h1r6/ci-deploy-tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws_access_key_id }}
+          aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
+          aws-region: ${{ secrets.aws_region }}
+
+      - name: Login to AWS ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and compress image
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          mkdir data/
+          docker build --compress -t $IMAGE_NAME .
+          docker save --output data/image.tar $IMAGE_NAME
+
+      - name: Get image tag
+        id: get_image_tag
+        run: echo "BE_IMAGE_TAG=$(echo $IMAGE_TAG)" >> $GITHUB_ENV
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+
+      - name: Tag and push image
+        env:
+          ECR_REPOSITORY: ${{ secrets.ecr_repo }}
+          IMAGE_TAG: ${{ env.BE_IMAGE_TAG }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          docker load --input data/image.tar
+          docker tag $IMAGE_NAME:latest $ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_REPOSITORY:latest
+          docker push $ECR_REPOSITORY:latest
+
+      - name: Update BE_IMAGE_TAG doppler secret
+        env:
+          IMAGE_TAG: ${{ env.BE_IMAGE_TAG }}
+          DOPPLER_TOKEN: ${{ secrets.infrastructure_doppler_token }}
+        run: |
+          doppler secrets set BE_IMAGE_TAG=${IMAGE_TAG}
+
+      - name: Create backend task definition json
+        id: create_backend_task_definition
+        env:
+          DOPPLER_TOKEN: ${{ secrets.infrastructure_doppler_token }}
+        run: |
+          AWS_BACKEND_SERVICE_NAME=`doppler run -- printenv AWS_BACKEND_SERVICE_NAME`
+          AWS_CLUSTER=`doppler run -- printenv AWS_CLUSTER`
+          BE_IMAGE_NAME=`doppler run -- printenv BE_IMAGE_NAME`
+          BE_IMAGE_TAG=`doppler run -- printenv BE_IMAGE_TAG`
+          TASK_DEFINITION=`doppler run -- aws ecs describe-task-definition --task-definition $AWS_BACKEND_SERVICE_NAME`
+          echo $TASK_DEFINITION
+          echo $TASK_DEFINITION | jq '.taskDefinition' | jq '.containerDefinitions[0].image='\"${BE_IMAGE_NAME}:${BE_IMAGE_TAG}\" | jq {containerDefinitions,networkMode,family,cpu,placementConstraints,executionRoleArn,volumes,memory,requiresCompatibilities}  > task-def.json
+          doppler run -- echo "::set-output name=service::$AWS_BACKEND_SERVICE_NAME"
+          doppler run -- echo "::set-output name=cluster::$AWS_CLUSTER"
+
+      - name: Deploy Amazon ECS backend task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: task-def.json
+          service: ${{ steps.create_backend_task_definition.outputs.service }}
+          cluster: ${{ steps.create_backend_task_definition.outputs.cluster }}
+          wait-for-service-stability: true
+
+      - name: Create notebook task definition json
+        id: create_notebook_task_definition
+        env:
+          DOPPLER_TOKEN: ${{ secrets.infrastructure_doppler_token }}
+        run: |
+          AWS_NOTEBOOK_SERVICE_NAME=`doppler run -- printenv AWS_NOTEBOOK_SERVICE_NAME`
+          AWS_CLUSTER=`doppler run -- printenv AWS_CLUSTER`
+          BE_IMAGE_NAME=`doppler run -- printenv BE_IMAGE_NAME`
+          BE_IMAGE_TAG=`doppler run -- printenv BE_IMAGE_TAG`
+          TASK_DEFINITION=`doppler run -- aws ecs describe-task-definition --task-definition $AWS_NOTEBOOK_SERVICE_NAME`
+          echo $TASK_DEFINITION
+          echo $TASK_DEFINITION | jq '.taskDefinition' | jq '.containerDefinitions[0].image='\"${BE_IMAGE_NAME}:${BE_IMAGE_TAG}\" | jq {containerDefinitions,networkMode,family,cpu,placementConstraints,executionRoleArn,volumes,memory,requiresCompatibilities}  > task-def.json
+          doppler run -- echo "::set-output name=service::$AWS_NOTEBOOK_SERVICE_NAME"
+          doppler run -- echo "::set-output name=cluster::$AWS_CLUSTER"
+
+
+      - name: Deploy Amazon ECS notebook task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: task-def.json
+          service: ${{ steps.create_notebook_task_definition.outputs.service }}
+          cluster: ${{ steps.create_notebook_task_definition.outputs.cluster }}
+          wait-for-service-stability: true
+
+      - name: Reload hasura metadata
+        env:
+          DOPPLER_TOKEN: ${{ secrets.infrastructure_doppler_token }}
+        run: |
+          HASURA_ENGINE_ADMIN_SECRET=`doppler run -- printenv HASURA_ENGINE_ADMIN_SECRET`
+          HASURA_ENGINE_BASE_URL=`doppler run -- printenv HASURA_ENGINE_BASE_URL`
+          doppler run -- curl -X POST -H "Content-Type: application/json" -H "x-hasura-admin-secret: ${HASURA_ENGINE_ADMIN_SECRET}" \
+            -d '{"type" : "reload_metadata","args": {"reload_remote_schemas": true}}' ${HASURA_ENGINE_BASE_URL}/v1/query
