@@ -12,6 +12,8 @@ on:
         required: true
       cypress_password:
         required: true
+      cypress_public_apollo_uri:
+        required: false
 
 jobs:
   e2e:
@@ -29,6 +31,7 @@ jobs:
           # Our current dev env is actually the stage env
           CYPRESS_USERNAME: ${{ secrets.cypress_username }}
           CYPRESS_PASSWORD: ${{ secrets.cypress_password }}
+          CYPRESS_PUBLIC_APOLLO_URI: ${{ secrets.cypress_public_apollo_uri }}
       # NOTE: screenshots will be generated only if E2E test failed
       # thus we store screenshots only on failures
       # Alternative: create and commit an empty cypress/screenshots folder
