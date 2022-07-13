@@ -70,11 +70,14 @@ jobs:
         run: yarn --frozen-lockfile
         if: steps.cache-yarn-cache.outputs.cache-hit != 'true' || steps.cache-node-modules.outputs.cache-hit != 'true'
 
+      - name: Install vercel cli 27.0.2
+        run: yarn global add vercel@27.0.2
+
       - name: Run custom command
         run: ${{ inputs.command_pre_deploy }}
         env:
           DOPPLER_TOKEN: ${{ secrets.doppler_token }}
-      
+
       - uses: amondnet/vercel-action@v25
         with:
           scope: talanddev
