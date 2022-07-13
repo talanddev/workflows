@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: Install vercel cli
+        run: npm install -g vercel@27.0.2
+
       - uses: amondnet/vercel-action@v25
         with:
           scope: talanddev
